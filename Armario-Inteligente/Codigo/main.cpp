@@ -1,73 +1,104 @@
 #include <Arduino.h>
 #include <SPI.h>
 #include <MFRC522.h>
-#include <LiquidCrystal_PCF8574.h>
+#include <LiquidCrystal_I2C.h>
 #include <Wire.h>
 
+// Pinos RFID
 #define SS_PIN    5
-#define RST_PIN   22
-#define LED       2
-#define SDA       21
-#define SCL       13
+#define RST_PIN   4
+#define SCK_PIN   18
+#define MISO_PIN  19
+#define MOSI_PIN  23
 
-const int i2c_addr = 0x3F;
-LiquidCrystal_PCF8574 lcd(i2c_addr); 
+#define LED       2
+#define RX2       16
+#define SDA_PIN   21
+#define SCL_PIN   22
+
+LiquidCrystal_I2C lcd(0x27, 16, 2);
 MFRC522 rfid(SS_PIN, RST_PIN);
 
 void setup() {
+  Serial.begin(115200);
+  pinMode(RX2, OUTPUT);
+  digitalWrite(RX2, HIGH);
+  Serial.println("PORTA FECHADA");
+  
+  // Inicialização
+  Wire.begin(SDA_PIN, SCL_PIN);
+  lcd.init();
+  lcd.backlight();
+  lcd.clear();
+
   SPI.begin();           
   rfid.PCD_Init();     
 
-  lcd.begin(16, 2);
-  lcd.setBacklight(255);
-  lcd.clear();
-  lcd.home();
-  Serial.begin(115200);
-
-  //DIAGNÓSTICO
+  // Diagnósticos
   byte v = rfid.PCD_ReadRegister(rfid.VersionReg);
   lcd.setCursor(0, 0);
-  lcd.print("Fware MFRC522:0x");
+  lcd.print("Firmware: 0x");
+  lcd.print(v, HEX);
+  Serial.println("Firmware: 0x");
   Serial.println(v, HEX);
-  lcd.setCursor(0, 1);
+  
   if (v == 0x00 || v == 0xFF) {
-    lcd.print("ERRO");} 
-  else {
-    lcd.print("Leitor iniciado");}
+    lcd.setCursor(0, 1);
+    lcd.print("Erro no RFID");
+    Serial.println("Erro no RFID");
+    while(true); // Trava se RFID não conectado
+  } else {
+    lcd.setCursor(0, 1);
+    lcd.print("RFID OK");
+    Serial.println("RFID OK");
+    delay(3000);
+  }
 
   pinMode(LED, OUTPUT);
-  digitalWrite(LED, HIGH);
-  delay(3000);
-  digitalWrite(LED, LOW);
+  lcd.clear();
+  lcd.print("Aproxime a tag..");
 }
 
 void loop() {
-  delay(300);
-  lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print("Aproxime a tag..");
-  Serial.println("--------------------------");
-  // Verifica se há um novo cartão
-  if (!rfid.PICC_IsNewCardPresent()) {return;}
+  // Verifica se há novo cartão
+  if (!rfid.PICC_IsNewCardPresent() || !rfid.PICC_ReadCardSerial()) {
+    return;
+    //delay(100);-------------------------------------------------------------
+  }
 
-  // Verifica o ID do cartão
-  if (!rfid.PICC_ReadCardSerial()) {return;}
-
-  // Quando passar pelos dois ifs
+  // Se tag foi lida
+  digitalWrite(RX2, LOW);
+  Serial.println("PORTA ABERTA");
   digitalWrite(LED, HIGH);
   lcd.clear();
   lcd.setCursor(0, 0);
-  lcd.print("ID da Tag: ");
+  lcd.print("ID detectado:");
+  
+  lcd.setCursor(0, 1);
+  String uidStr = "";
   for (byte i = 0; i < rfid.uid.size; i++) {
-    lcd.setCursor(0, 1);
-    lcd.print(rfid.uid.uidByte[i] < 0x10 ? " 0" : " ");
-    lcd.print(rfid.uid.uidByte[i], HEX);
+    // ID em Hexadecimal
+    if(rfid.uid.uidByte[i] < 0x10) uidStr += "0";
+    uidStr += String(rfid.uid.uidByte[i], HEX);
+    uidStr += " ";
   }
-  Serial.println("\n--------------------------");
-  delay(3000);
-  digitalWrite(LED, LOW);
+  uidStr.toUpperCase();
+  lcd.print(uidStr);
+  
+  Serial.print("Tag ID: ");
+  Serial.println(uidStr);
 
-  // Interrompe a leitura para evitar loop
+  delay(3000);
+  
+  // Reseta para o estado inicial
+  digitalWrite(RX2, HIGH);
+  Serial.println("PORTA FECHADA");
+  digitalWrite(LED, LOW);
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("Aproxime a tag..");
+
+  // Interrompe a leitura para evitar loop na mesma tag
   rfid.PICC_HaltA();
   rfid.PCD_StopCrypto1();
 }
