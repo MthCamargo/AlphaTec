@@ -1,0 +1,14 @@
+function doGet(e) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const nomeUsuario = e.parameter.ID; // O ESP32 vai mandar o nome aqui
+  const aba = ss.getSheetByName("Log_Acessos") || ss.insertSheet("Log_Acessos");
+  const agora = new Date();
+
+  const data = Utilities.formatDate(agora, "GMT-3", "dd/MM/yyyy");
+  const hora = Utilities.formatDate(agora, "GMT-3", "HH:mm:ss");
+
+  // Coluna A: Nome, B: Data, C: Hora
+  aba.appendRow([nomeUsuario, data, hora]);
+
+  return ContentService.createTextOutput("Sucesso");
+}
