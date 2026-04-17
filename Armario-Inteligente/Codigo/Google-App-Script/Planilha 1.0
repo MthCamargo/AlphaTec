@@ -1,0 +1,23 @@
+function doGet(e) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const { action, ID, aba: nomeAba = "Dados" } = e.parameter;
+  const sheet = ss.getSheetByName(nomeAba) || ss.insertSheet(nomeAba);
+  const agora = new Date();
+
+  // Ação padrão: Escrever em lista (se não houver 'action' definida)
+  if (!action || action === "escreverEmLista") {
+    sheet.appendRow([agora, ID]); // Coluna A: Data/Hora, Coluna B: ID do Cartão
+    return res("Salvo na lista");
+  }
+
+  if (action === "ler") {
+    const valor = sheet.getRange(ID).getValue(); // Aqui ID funciona como a célula (ex: A1)
+    return res(valor);
+  }
+
+  return res("Ação inválida");
+}
+
+function res(msg) {
+  return ContentService.createTextOutput(msg);
+}
