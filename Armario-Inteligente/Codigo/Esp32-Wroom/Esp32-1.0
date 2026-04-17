@@ -1,0 +1,41 @@
+#include <SPI.h>
+#include <MFRC522.h>
+#include <WiFi.h>
+#include <WiFiClientSecure.h>
+#include <HTTPClient.h>
+
+// Pinos conforme sua imagem (Fios: Amarelo, Verde, Branco, Azul, Rosa)
+MFRC522 rfid(5, 17); // SDA no 5, RST no 17
+
+const char* url = "https://script.google.com/macros/s/AKfycbyHszkB1ih8n4WZIXkVQgcztuvtaFMK3EO4NvsVadZj-6kKxQTnJNl8GupoCfA2R_hW/exec"; // URL do Script /exec
+
+void setup() {
+  Serial.begin(115200);
+  SPI.begin(18, 19, 23, 5); // SCK, MISO, MOSI, SS
+  rfid.PCD_Init();
+  
+  WiFi.begin("Wokwi-GUEST", "");
+  while (WiFi.status() != WL_CONNECTED) delay(500);
+  Serial.println("Conectado!");
+  rfid.PCD_DumpVersionToSerial(); // Adicione isso no final do setup()
+}
+
+void loop() {
+  if (!rfid.PICC_IsNewCardPresent() || !rfid.PICC_ReadCardSerial()) return;
+
+  HTTPClient http;
+  WiFiClientSecure client;
+  client.setInsecure();
+
+  // Monta a URL curta com o ID do cartão
+  String link = String(url) + "?ID=" + String(rfid.uid.uidByte[0], HEX); 
+  
+  if (http.begin(client, link)) {
+    http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+    int code = http.GET();
+    Serial.printf("Envio: %s | Status: %d\n", link.c_str(), code);
+    http.end();
+  }
+  
+  delay(2000); // Evita envios duplicados rápidos
+}
