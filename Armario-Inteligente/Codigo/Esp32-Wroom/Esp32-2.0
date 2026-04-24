@@ -1,0 +1,152 @@
+#include <SPI.h>
+#include <MFRC522.h>
+#include <WiFi.h>
+#include <WiFiClientSecure.h>
+#include <HTTPClient.h>
+
+// ==========================================
+//        CONFIGURAÇÕES DO PROJETO
+// ==========================================
+const char* URL_SCRIPT = "https://script.google.com/macros/s/AKfycbx24V5TzZ71SuNb82Cguz4dRYmfYC_8vsB1X2CQ9kfr_tvEIid2hLhApuFt9U5N0a6aXw/exec"; 
+const String TAG_MESTRA = "11223344"; // ID da sua Tag Master
+
+#define SS_PIN    5   
+#define RST_PIN   22  
+#define SCK_PIN   18  
+#define MISO_PIN  19  
+#define MOSI_PIN  23  
+// ==========================================
+
+MFRC522 rfid(SS_PIN, RST_PIN);
+bool modoAdmin = false; 
+
+void setup() {
+  Serial.begin(115200);
+  SPI.begin(SCK_PIN, MISO_PIN, MOSI_PIN, SS_PIN);
+  rfid.PCD_Init();
+  
+  Serial.println("\n[SISTEMA] Inicializando hardware...");
+  WiFi.begin("Wokwi-GUEST", "");
+  while (WiFi.status() != WL_CONNECTED) { delay(500); Serial.print("."); }
+  
+  Serial.println("\n[SISTEMA] ONLINE");
+  Serial.println("[STATUS] MODO: ACESSO NORMAL");
+  Serial.println("---------------------------------------");
+}
+
+void loop() {
+  if (!rfid.PICC_IsNewCardPresent() || !rfid.PICC_ReadCardSerial()) return;
+
+  // PROTOCOLO DE ESPERA
+  Serial.println("\n[!] LEITURA DETECTADA!");
+  Serial.println("[!] PROCESSANDO... AGUARDE SUA VEZ.");
+
+  String idLida = "";
+  for (byte i = 0; i < rfid.uid.size; i++) {
+    idLida += String(rfid.uid.uidByte[i] < 0x10 ? "0" : "");
+    idLida += String(rfid.uid.uidByte[i], HEX);
+  }
+  idLida.toUpperCase();
+
+  // VERIFICAÇÃO DE TAG MESTRA
+  if (idLida == TAG_MESTRA) {
+    modoAdmin = !modoAdmin;
+    Serial.println("\n========================================");
+    Serial.println(modoAdmin ? "   >>> MODO ADMINISTRADOR ATIVADO <<<" : "   >>> MODO ACESSO NORMAL ATIVADO <<<");
+    Serial.println("========================================");
+    delay(1500);
+  } 
+  else {
+    if (modoAdmin) {
+      executarFluxoAdmin(idLida);
+    } else {
+      executarFluxoNormal(idLida);
+    }
+  }
+
+  // LIBERAÇÃO DO OPERADOR
+  Serial.println("---------------------------------------");
+  Serial.println("[STATUS] Pronto! Pode passar a proxima tag.");
+  rfid.PICC_HaltA();
+  delay(1000); 
+}
+
+// --- FLUXO NORMAL (ESTRITAMENTE CONSULTIVO) ---
+void executarFluxoNormal(String id) {
+  Serial.println("[1/2] Consultando servidor...");
+  String res = realizarRequisicao("ID=" + id);
+  
+  Serial.print("[2/2] RESULTADO: ");
+  if (res == "PENDENTE") {
+    Serial.println("ACESSO-NEGADO (Tag nao cadastrada)");
+  } else if (res == "REMOVIDO") {
+    Serial.println("ACESSO-NEGADO (Usuario desativado)");
+  } else if (res == "ERRO") {
+    Serial.println("FALHA-NA-REDE");
+  } else {
+    // Formatação exata solicitada
+    Serial.println("ACESSO-CONCEDIDO: " + res);
+  }
+}
+
+// --- FLUXO ADMIN (INTERATIVO) ---
+void executarFluxoAdmin(String id) {
+  Serial.println("[1/2] Verificando base de dados...");
+  String status = realizarRequisicao("ID=" + id); 
+
+  if (status == "PENDENTE" || status == "REMOVIDO") {
+    Serial.println("[ADMIN] Tag pronta para registro.");
+    Serial.print(">> DIGITE O NOME PARA ESTE ID: ");
+    
+    while(Serial.available()) Serial.read(); // Limpa sujeira do buffer
+    while (Serial.available() == 0) { delay(100); }
+    
+    String nome = Serial.readStringUntil('\n');
+    nome.trim();
+    
+    if (nome.length() > 0) {
+      Serial.println("[2/2] Enviando novo cadastro...");
+      Serial.println("[RESPOSTA]: " + realizarRequisicao("ID=" + id + "&NOME=" + nome));
+    }
+  } 
+  else {
+    Serial.println("[ADMIN] Tag pertence a: " + status);
+    Serial.print(">> REMOVER REGISTRO? (R) PARA SIM / (QUALQUER TECLA) PARA CANCELAR: ");
+    
+    while(Serial.available()) Serial.read();
+    while (Serial.available() == 0) { delay(100); }
+    
+    String opt = Serial.readStringUntil('\n');
+    opt.toUpperCase();
+    
+    if (opt.indexOf("R") >= 0) {
+      Serial.println("[2/2] Solicitando desativacao...");
+      Serial.println("[RESPOSTA]: " + realizarRequisicao("ID=" + id + "&ACAO=DELETE"));
+    } else {
+      Serial.println("[INFO] Operacao abortada.");
+    }
+  }
+}
+
+// --- FUNÇÃO DE COMUNICAÇÃO ---
+String realizarRequisicao(String parametros) {
+  WiFiClientSecure client;
+  client.setInsecure();
+  HTTPClient http;
+  
+  String link = String(URL_SCRIPT) + "?" + parametros;
+  link.replace(" ", "%20");
+
+  if (http.begin(client, link)) {
+    http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+    http.setTimeout(15000); 
+    int code = http.GET();
+    if (code > 0) {
+      String p = http.getString();
+      http.end();
+      return p;
+    }
+    http.end();
+  }
+  return "ERRO";
+}
