@@ -181,7 +181,7 @@ void fluxoAdmin(String id, String tipo) {
     String opt = Serial.readStringUntil('\n'); 
     opt.toUpperCase();
     
-    if (opt.indexOf("R") >= 0) {
+    if (opt.indexOf("S") >= 0) {
       Serial.println("\n[ADMIN] Solicitando remocao do banco...");
       displayMsg("Removendo...");
       String resposta = realizarRequisicao("ID=" + id + "&ACAO=DELETE&TIPO=" + tipo);
